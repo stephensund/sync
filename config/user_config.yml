@@ -1,7 +1,3 @@
 download-folder-listtype: whitelist
 download-folder-list:
   - loadingbg
-
-extract-folder-listtype: whitelist
-extract-folder-list:
-  - loadingbg
