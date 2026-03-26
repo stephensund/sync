@@ -1,4 +1,4 @@
-name: JP loadingbg sync (cached)
+name: JP loadingbg sync (cached, split)
 
 permissions:
   contents: write
@@ -11,9 +11,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ------------------------------
+      # =============================
       # 基础环境
-      # ------------------------------
+      # =============================
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -27,38 +27,42 @@ jobs:
           python -m pip install --upgrade pip
           pip install azlassets
 
-      # ------------------------------
-      # 恢复 JP 客户端缓存（如果存在）
-      # ------------------------------
-      - name: Restore JP client cache (if exists)
+      # =============================
+      # 恢复 JP 客户端缓存（分卷）
+      # =============================
+      - name: Restore JP client cache (split, if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
 
           if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
-            CACHE_URL=$(jq -r '.assets[] | select(.name=="jp-client-cache.tar.zst") | .browser_download_url' release.json)
-            if [ -n "$CACHE_URL" ] && [ "$CACHE_URL" != "null" ]; then
-              echo "Restoring JP client cache..."
-              curl -L -o jp-client-cache.tar.zst "$CACHE_URL"
-              tar -I zstd -xf jp-client-cache.tar.zst
+            PARTS=$(jq -r '.assets[] | select(.name|test("^jp-client-cache.part-")) | .browser_download_url' release.json)
+            if [ -n "$PARTS" ]; then
+              echo "Restoring JP client cache from split parts..."
+              mkdir -p cache_parts
+              for url in $PARTS; do
+                fname=$(basename "$url")
+                curl -L "$url" -o "cache_parts/$fname"
+              done
+              cat cache_parts/jp-client-cache.part-* | tar -I zstd -xf -
             else
-              echo "No client cache found, cold start."
+              echo "No cache parts found, cold start."
             fi
           else
             echo "No previous release found, cold start."
           fi
 
-      # ------------------------------
-      # downloader（热启动 / 冷启动）
-      # ------------------------------
+      # =============================
+      # downloader（热/冷启动）
+      # =============================
       - name: Download JP assets (incremental)
         run: |
           python -m downloader JP
 
-      # ------------------------------
+      # =============================
       # 恢复上次 loadingbg（用于 diff）
-      # ------------------------------
+      # =============================
       - name: Restore last loadingbg snapshot (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,16 +78,16 @@ jobs:
             fi
           fi
 
-      # ------------------------------
-      # 收集当前 loadingbg
-      # ------------------------------
+      # =============================
+      # 收集 loadingbg
+      # =============================
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
-      # ------------------------------
-      # 生成 diff + 压缩
-      # ------------------------------
+      # =============================
+      # diff + zip
+      # =============================
       - name: Diff and zip
         run: |
           bash scripts/diff_and_zip.sh
@@ -93,18 +97,18 @@ jobs:
         run: |
           echo "has_diff=$(cat has_diff.flag)" >> $GITHUB_OUTPUT
 
-      # ------------------------------
+      # =============================
       # 元信息
-      # ------------------------------
+      # =============================
       - name: Generate meta info
         run: |
           echo "client=JP" > meta.txt
           echo "generated_at=$(date -u)" >> meta.txt
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
 
-      # ------------------------------
-      # ✅ 关键修复：瘦身缓存（防磁盘爆满）
-      # ------------------------------
+      # =============================
+      # 瘦身 ClientAssets，防止爆盘
+      # =============================
       - name: Prune JP client cache (reduce disk usage)
         run: |
           cd ClientAssets/JP
@@ -112,16 +116,17 @@ jobs:
           rm -rf tmp || true
           cd ../..
 
-      # ------------------------------
-      # 打包 JP 客户端缓存
-      # ------------------------------
-      - name: Pack JP client cache
+      # =============================
+      # 打包并分卷缓存（<2GB/卷）
+      # =============================
+      - name: Pack JP client cache (split)
         run: |
-          tar -I zstd -cf jp-client-cache.tar.zst ClientAssets/JP
+          rm -f jp-client-cache.part-*
+          tar -I zstd -cf - ClientAssets/JP | split -b 1900M - jp-client-cache.part-
 
-      # ------------------------------
-      # 发布 / 更新 Release
-      # ------------------------------
+      # =============================
+      # 发布 Release（分卷 cache）
+      # =============================
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
@@ -132,11 +137,11 @@ jobs:
 
             Changes detected: ${{ steps.diffcheck.outputs.has_diff }}
 
-            - loadingbg_full.zip : always latest full snapshot
+            - loadingbg_full.zip : latest full snapshot
             - loadingbg_diff.zip : only when updated
-            - jp-client-cache.tar.zst : JP client cache (for fast incremental sync)
+            - jp-client-cache.part-* : JP client cache (split, for fast incremental sync)
           files: |
-            jp-client-cache.tar.zst
+            jp-client-cache.part-*
             loadingbg_full.zip
             meta.txt
             ${{ steps.diffcheck.outputs.has_diff == 'true' && 'loadingbg_diff.zip' || '' }}
