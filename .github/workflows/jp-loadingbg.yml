@@ -50,14 +50,14 @@ jobs:
           fi
 
       # ------------------------------
-      # downloader（此时是热启动 / 冷启动）
+      # downloader（热启动 / 冷启动）
       # ------------------------------
       - name: Download JP assets (incremental)
         run: |
           python -m downloader JP
 
       # ------------------------------
-      # 取上一次 loadingbg 全量快照（用于 diff）
+      # 恢复上次 loadingbg（用于 diff）
       # ------------------------------
       - name: Restore last loadingbg snapshot (if exists)
         env:
@@ -82,7 +82,7 @@ jobs:
           python scripts/collect_loadingbg.py
 
       # ------------------------------
-      # diff + zip
+      # 生成 diff + 压缩
       # ------------------------------
       - name: Diff and zip
         run: |
@@ -103,7 +103,17 @@ jobs:
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
 
       # ------------------------------
-      # 更新 JP 客户端缓存（始终）
+      # ✅ 关键修复：瘦身缓存（防磁盘爆满）
+      # ------------------------------
+      - name: Prune JP client cache (reduce disk usage)
+        run: |
+          cd ClientAssets/JP
+          rm -rf ClientExtract || true
+          rm -rf tmp || true
+          cd ../..
+
+      # ------------------------------
+      # 打包 JP 客户端缓存
       # ------------------------------
       - name: Pack JP client cache
         run: |
