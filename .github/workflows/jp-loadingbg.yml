@@ -1,4 +1,4 @@
-name: JP loadingbg sync
+name: JP loadingbg sync (cached)
 
 permissions:
   contents: write
@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ------------------------------
+      # 基础环境
+      # ------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -24,63 +27,106 @@ jobs:
           python -m pip install --upgrade pip
           pip install azlassets
 
-      - name: Download JP loadingbg assets
-        run: |
-          python -m downloader JP
-
-      # === 下载上一次 Release 的 full 快照（如果存在）===
-      - name: Download last full snapshot from Release (if exists)
+      # ------------------------------
+      # 恢复 JP 客户端缓存（如果存在）
+      # ------------------------------
+      - name: Restore JP client cache (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASE_API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
+          API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
 
-          if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$RELEASE_API" > release.json; then
-            URL=$(jq -r '.assets[] | select(.name=="loadingbg_full.zip") | .browser_download_url' release.json)
-            if [ -n "$URL" ] && [ "$URL" != "null" ]; then
-              curl -L -o loadingbg_full.zip "$URL"
+          if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
+            CACHE_URL=$(jq -r '.assets[] | select(.name=="jp-client-cache.tar.zst") | .browser_download_url' release.json)
+            if [ -n "$CACHE_URL" ] && [ "$CACHE_URL" != "null" ]; then
+              echo "Restoring JP client cache..."
+              curl -L -o jp-client-cache.tar.zst "$CACHE_URL"
+              tar -I zstd -xf jp-client-cache.tar.zst
+            else
+              echo "No client cache found, cold start."
+            fi
+          else
+            echo "No previous release found, cold start."
+          fi
+
+      # ------------------------------
+      # downloader（此时是热启动 / 冷启动）
+      # ------------------------------
+      - name: Download JP assets (incremental)
+        run: |
+          python -m downloader JP
+
+      # ------------------------------
+      # 取上一次 loadingbg 全量快照（用于 diff）
+      # ------------------------------
+      - name: Restore last loadingbg snapshot (if exists)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
+
+          if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
+            FULL_URL=$(jq -r '.assets[] | select(.name=="loadingbg_full.zip") | .browser_download_url' release.json)
+            if [ -n "$FULL_URL" ] && [ "$FULL_URL" != "null" ]; then
+              curl -L -o loadingbg_full.zip "$FULL_URL"
               unzip -q loadingbg_full.zip
               mv current_loadingbg last_loadingbg
             fi
           fi
 
-      # === 收集本次下载的 loadingbg ===
+      # ------------------------------
+      # 收集当前 loadingbg
+      # ------------------------------
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
-      # === 生成 diff + zip，并写 has_diff.flag ===
+      # ------------------------------
+      # diff + zip
+      # ------------------------------
       - name: Diff and zip
         run: |
           bash scripts/diff_and_zip.sh
 
-      # === 读取 diff 状态 ===
       - name: Read diff status
         id: diffcheck
         run: |
           echo "has_diff=$(cat has_diff.flag)" >> $GITHUB_OUTPUT
 
-      # === 生成元信息 ===
+      # ------------------------------
+      # 元信息
+      # ------------------------------
       - name: Generate meta info
         run: |
           echo "client=JP" > meta.txt
           echo "generated_at=$(date -u)" >> meta.txt
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
 
-      # === 发布 / 更新 Release ===
+      # ------------------------------
+      # 更新 JP 客户端缓存（始终）
+      # ------------------------------
+      - name: Pack JP client cache
+        run: |
+          tar -I zstd -cf jp-client-cache.tar.zst ClientAssets/JP
+
+      # ------------------------------
+      # 发布 / 更新 Release
+      # ------------------------------
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: jp-loadingbg-latest
           name: JP loadingbg latest
           body: |
-            Automated manual sync of Azur Lane JP loadingbg assetbundles.
+            Manual sync of Azur Lane JP loadingbg assetbundles.
 
             Changes detected: ${{ steps.diffcheck.outputs.has_diff }}
 
-            - Full snapshot: loadingbg_full.zip
-            - Diff snapshot: only published when changes exist
+            - loadingbg_full.zip : always latest full snapshot
+            - loadingbg_diff.zip : only when updated
+            - jp-client-cache.tar.zst : JP client cache (for fast incremental sync)
           files: |
+            jp-client-cache.tar.zst
             loadingbg_full.zip
             meta.txt
             ${{ steps.diffcheck.outputs.has_diff == 'true' && 'loadingbg_diff.zip' || '' }}
