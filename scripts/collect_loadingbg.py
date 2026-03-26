@@ -1,11 +1,15 @@
 from pathlib import Path
 import shutil
 
-SRC = Path("ClientAssets/JP/AssetBundles/loadingbg")
-DST = Path("current_loadingbg")
+src = Path("ClientAssets/JP/AssetBundles/loadingbg")
+dst = Path("current_loadingbg")
 
-DST.mkdir(parents=True, exist_ok=True)
+dst.mkdir(parents=True, exist_ok=True)
 
-for f in SRC.glob("*"):
+if not src.exists():
+    print("Source directory does not exist:", src)
+    exit(0)
+
+for f in src.iterdir():
     if f.is_file():
-        shutil.copy2(f, DST / f.name)
+        shutil.copy2(f, dst / f.name)
