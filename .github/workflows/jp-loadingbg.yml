@@ -1,7 +1,7 @@
 name: JP loadingbg sync
 
 permissions:
-  contents: write   # ✅ 必须，否则 Release 会失败
+  contents: write
 
 on:
   workflow_dispatch:
@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -27,48 +28,53 @@ jobs:
         run: |
           python -m downloader JP
 
-      # -------- 拉取上一次 Release 的 full 包 --------
-      - name: Download last full snapshot (if exists)
+      # ===== 下载上一版本的 full 快照（如果存在）=====
+      - name: Download last full snapshot from Release (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
+          RELEASE_API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
 
-          if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
+          if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$RELEASE_API" > release.json; then
             URL=$(jq -r '.assets[] | select(.name=="loadingbg_full.zip") | .browser_download_url' release.json)
-            if [ -n "$URL" ]; then
+            if [ -n "$URL" ] && [ "$URL" != "null" ]; then
+              echo "Downloading last full snapshot..."
               curl -L -o loadingbg_full.zip "$URL"
               unzip -q loadingbg_full.zip
               mv current_loadingbg last_loadingbg
             fi
+          else
+            echo "No previous release found."
           fi
 
+      # ===== 收集本轮下载的 loadingbg =====
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
+      # ===== 生成 diff + zip =====
       - name: Diff and zip
         run: |
           bash scripts/diff_and_zip.sh
 
-      - name: Generate meta
+      # ===== 写入元信息 =====
+      - name: Generate meta info
         run: |
           echo "client=JP" > meta.txt
-          echo "updated_at=$(date -u)" >> meta.txt
+          echo "generated_at=$(date -u)" >> meta.txt
 
-      # -------- 发布 / 更新固定 Release --------
+      # ===== 发布 / 更新 Release =====
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: jp-loadingbg-latest
           name: JP loadingbg latest
           body: |
-            Automated daily sync of JP loadingbg assetbundles.
+            Automated manual sync of Azur Lane JP loadingbg assetbundles.
 
             - Full snapshot: loadingbg_full.zip
-            - Incremental update: loadingbg_diff.zip
+            - Incremental update: loadingbg_diff.zip (if exists)
           files: |
             loadingbg_full.zip
             loadingbg_diff.zip
             meta.txt
-``
