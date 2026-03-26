@@ -28,7 +28,7 @@ jobs:
         run: |
           python -m downloader JP
 
-      # ===== 下载上一版本的 full 快照（如果存在）=====
+      # === 下载上一次 Release 的 full 快照（如果存在）===
       - name: Download last full snapshot from Release (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,32 +38,36 @@ jobs:
           if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$RELEASE_API" > release.json; then
             URL=$(jq -r '.assets[] | select(.name=="loadingbg_full.zip") | .browser_download_url' release.json)
             if [ -n "$URL" ] && [ "$URL" != "null" ]; then
-              echo "Downloading last full snapshot..."
               curl -L -o loadingbg_full.zip "$URL"
               unzip -q loadingbg_full.zip
               mv current_loadingbg last_loadingbg
             fi
-          else
-            echo "No previous release found."
           fi
 
-      # ===== 收集本轮下载的 loadingbg =====
+      # === 收集本次下载的 loadingbg ===
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
-      # ===== 生成 diff + zip =====
+      # === 生成 diff + zip，并写 has_diff.flag ===
       - name: Diff and zip
         run: |
           bash scripts/diff_and_zip.sh
 
-      # ===== 写入元信息 =====
+      # === 读取 diff 状态 ===
+      - name: Read diff status
+        id: diffcheck
+        run: |
+          echo "has_diff=$(cat has_diff.flag)" >> $GITHUB_OUTPUT
+
+      # === 生成元信息 ===
       - name: Generate meta info
         run: |
           echo "client=JP" > meta.txt
           echo "generated_at=$(date -u)" >> meta.txt
+          echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
 
-      # ===== 发布 / 更新 Release =====
+      # === 发布 / 更新 Release ===
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
@@ -72,9 +76,11 @@ jobs:
           body: |
             Automated manual sync of Azur Lane JP loadingbg assetbundles.
 
+            Changes detected: ${{ steps.diffcheck.outputs.has_diff }}
+
             - Full snapshot: loadingbg_full.zip
-            - Incremental update: loadingbg_diff.zip (if exists)
+            - Diff snapshot: only published when changes exist
           files: |
             loadingbg_full.zip
-            loadingbg_diff.zip
             meta.txt
+            ${{ steps.diffcheck.outputs.has_diff == 'true' && 'loadingbg_diff.zip' || '' }}
