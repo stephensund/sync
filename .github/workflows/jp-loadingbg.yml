@@ -4,8 +4,6 @@ permissions:
   contents: write   # ✅ 必须，否则 Release 会失败
 
 on:
-#  schedule:
-#    - cron: "0 3 * * *"   # UTC 03:00 (≈ JST 12:00)
   workflow_dispatch:
 
 jobs:
