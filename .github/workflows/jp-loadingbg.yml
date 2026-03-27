@@ -1,4 +1,4 @@
-name: JP loadingbg sync (cached, split)
+name: JP loadingbg sync (cached, split, safe upload)
 
 permissions:
   contents: write
@@ -54,7 +54,7 @@ jobs:
           fi
 
       # =============================
-      # downloader（热/冷启动）
+      # downloader（热 / 冷启动）
       # =============================
       - name: Download JP assets (incremental)
         run: |
@@ -107,9 +107,9 @@ jobs:
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
 
       # =============================
-      # 瘦身 ClientAssets，防止爆盘
+      # 瘦身缓存，减少磁盘和压缩体积
       # =============================
-      - name: Prune JP client cache (reduce disk usage)
+      - name: Prune JP client cache
         run: |
           cd ClientAssets/JP
           rm -rf ClientExtract || true
@@ -117,31 +117,37 @@ jobs:
           cd ../..
 
       # =============================
-      # 打包并分卷缓存（<2GB/卷）
+      # 打包并分卷缓存（< 2GB）
       # =============================
       - name: Pack JP client cache (split)
         run: |
           rm -f jp-client-cache.part-*
           tar -I zstd -cf - ClientAssets/JP | split -b 1900M - jp-client-cache.part-
 
-      # =============================
-      # 发布 Release（分卷 cache）
-      # =============================
-      - name: Publish Release
+      # =====================================================
+      # ✅ 关键修复：分段上传 Release，避免 Runner 掉线
+      # =====================================================
+
+      # ---- Step A：上传 cache 分卷（最耗时）----
+      - name: Publish client cache parts
         uses: softprops/action-gh-release@v2
         with:
           tag_name: jp-loadingbg-latest
           name: JP loadingbg latest
-          body: |
-            Manual sync of Azur Lane JP loadingbg assetbundles.
+          files: jp-client-cache.part-*
 
-            Changes detected: ${{ steps.diffcheck.outputs.has_diff }}
+      # ---- 给 Runner 一个喘息时间，确保心跳 ----
+      - name: Cool down runner
+        run: |
+          echo "Cooling down runner to keep heartbeat..."
+          sleep 25
 
-            - loadingbg_full.zip : latest full snapshot
-            - loadingbg_diff.zip : only when updated
-            - jp-client-cache.part-* : JP client cache (split, for fast incremental sync)
+      # ---- Step B：上传 loadingbg / meta（很快）----
+      - name: Publish loadingbg artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: jp-loadingbg-latest
           files: |
-            jp-client-cache.part-*
             loadingbg_full.zip
             meta.txt
             ${{ steps.diffcheck.outputs.has_diff == 'true' && 'loadingbg_diff.zip' || '' }}
