@@ -68,6 +68,10 @@ jobs:
             if [ -n "$FULL_URL" ] && [ "$FULL_URL" != "null" ]; then
               curl -L -o loadingbg_full.zip "$FULL_URL"
               unzip -q loadingbg_full.zip
+
+              # 确保不会因为旧目录导致 mv 失败
+              if [ -d "last_loadingbg" ]; then
+                rm
               mv current_loadingbg last_loadingbg
             fi
           fi
