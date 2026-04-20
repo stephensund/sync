@@ -65,16 +65,18 @@ jobs:
 
           if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
             FULL_URL=$(jq -r '.assets[] | select(.name=="loadingbg_full.zip") | .browser_download_url' release.json)
+          
             if [ -n "$FULL_URL" ] && [ "$FULL_URL" != "null" ]; then
               curl -L -o loadingbg_full.zip "$FULL_URL"
-            unzip -q loadingbg_full.zip
-            
-            # 如果已有旧的 last_loadingbg，先清理，保证 mv 不会失败
-            if [ -d "last_loadingbg" ]; then
-              rm -rf last_loadingbg
+              unzip -q loadingbg_full.zip
+          
+              # 如果已有旧的 last_loadingbg，先清理，保证 mv 不会失败
+              if [ -d "last_loadingbg" ]; then
+                rm -rf last_loadingbg
+              fi
+          
+              mv current_loadingbg last_loadingbg
             fi
-            
-            mv current_loadingbg last_loadingbg
           fi
 
       # =============================
