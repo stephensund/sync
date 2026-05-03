@@ -44,12 +44,28 @@ jobs:
             fi
           fi
 
-      # =============================
-      # ✅ 4.x 下载命令：azl download
-      # =============================
-      - name: Download JP assets (azl v4)
+      - name: Download JP assets (azl v4.0.0 with runtime patch)
         run: |
-          azl download JP
+          python - <<'PY'
+          import sys
+          import azl
+          import azlassets.classes as cls
+      
+          VT = getattr(cls, "VersionType", None)
+          if VT is None:
+              print("[patch] VersionType not found in azlassets.classes; continuing anyway.")
+          else:
+              # 如果不可哈希，__hash__ 通常为 None
+              if getattr(VT, "__hash__", None) is None:
+                  VT.__hash__ = lambda self: hash(str(self))
+                  print("[patch] Patched VersionType.__hash__ to hash(str(self))")
+              else:
+                  print("[patch] VersionType.__hash__ already present:", VT.__hash__)
+      
+          # 让 azl 按 CLI 方式运行 download JP
+          sys.argv = ["azl", "download", "JP"]
+          azl.main()
+          PY
 
       # =============================
       # 恢复上次 loadingbg_full.zip → last_loadingbg（用于 diff）
