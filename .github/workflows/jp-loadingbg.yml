@@ -1,4 +1,4 @@
-name: JP loadingbg sync (state-cache)
+name: JP loadingbg sync (state-cache, azl v4)
 
 permissions:
   contents: write
@@ -11,9 +11,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # =============================
-      # 基础环境
-      # =============================
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -22,20 +19,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install azlassets
+      - name: Install azlassets (v4.x)
         run: |
           python -m pip install --upgrade pip
-          pip install azlassets
+          pip install "azlassets>=4,<5"
+          azl --help
 
       # =============================
-      # 恢复 azlassets 状态 cache（非常小）
+      # 恢复 azlassets state cache（非常小）
       # =============================
       - name: Restore azlassets state cache (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
-
           if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
             STATE_URL=$(jq -r '.assets[] | select(.name=="jp-client-state.tar") | .browser_download_url' release.json)
             if [ -n "$STATE_URL" ] && [ "$STATE_URL" != "null" ]; then
@@ -48,46 +45,41 @@ jobs:
           fi
 
       # =============================
-      # downloader
+      # ✅ 4.x 下载命令：azl download
       # =============================
-      - name: Download JP assets
+      - name: Download JP assets (azl v4)
         run: |
-          python -m downloader JP
+          azl download JP
 
       # =============================
-      # 恢复上次 loadingbg（用于 diff）
+      # 恢复上次 loadingbg_full.zip → last_loadingbg（用于 diff）
       # =============================
       - name: Restore last loadingbg snapshot (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
-
           if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
             FULL_URL=$(jq -r '.assets[] | select(.name=="loadingbg_full.zip") | .browser_download_url' release.json)
-          
             if [ -n "$FULL_URL" ] && [ "$FULL_URL" != "null" ]; then
               curl -L -o loadingbg_full.zip "$FULL_URL"
               unzip -q loadingbg_full.zip
-          
-              # 如果已有旧的 last_loadingbg，先清理，保证 mv 不会失败
               if [ -d "last_loadingbg" ]; then
                 rm -rf last_loadingbg
               fi
-          
               mv current_loadingbg last_loadingbg
             fi
           fi
 
       # =============================
-      # 收集 loadingbg
+      # 收集本次 loadingbg（若没更新可能不存在）
       # =============================
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
       # =============================
-      # diff + zip
+      # diff + zip（你已修过：无 current_loadingbg 也能正常结束）
       # =============================
       - name: Diff and zip
         run: |
@@ -98,9 +90,6 @@ jobs:
         run: |
           echo "has_diff=$(cat has_diff.flag)" >> $GITHUB_OUTPUT
 
-      # =============================
-      # 生成元信息
-      # =============================
       - name: Generate meta info
         run: |
           echo "client=JP" > meta.txt
@@ -108,17 +97,21 @@ jobs:
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
 
       # =============================
-      # ✅ 只打包 azlassets 状态（极小）
+      # 打包 state cache（只保留逻辑状态，不含 AssetBundles）
       # =============================
       - name: Pack azlassets client state
         run: |
+          rm -rf state_tmp
           mkdir -p state_tmp/ClientAssets
-          cp -r ClientAssets/JP state_tmp/ClientAssets/
-          rm -rf state_tmp/ClientAssets/JP/AssetBundles
+          # 仅当 ClientAssets/JP 存在时才打包（防首次/异常）
+          if [ -d "ClientAssets/JP" ]; then
+            cp -r ClientAssets/JP state_tmp/ClientAssets/
+            rm -rf state_tmp/ClientAssets/JP/AssetBundles || true
+          fi
           tar -cf jp-client-state.tar -C state_tmp ClientAssets
 
       # =============================
-      # 发布 Release（稳定）
+      # 发布 Release
       # =============================
       - name: Publish Release
         uses: softprops/action-gh-release@v2
@@ -126,7 +119,7 @@ jobs:
           tag_name: jp-loadingbg-latest
           name: JP loadingbg latest
           body: |
-            JP loadingbg sync with azlassets state cache.
+            JP loadingbg sync (azlassets v4, state-cache).
 
             - jp-client-state.tar : azlassets logical state (safe cache)
             - loadingbg_full.zip : latest full snapshot
