@@ -26,7 +26,7 @@ jobs:
           azl --help
 
       # =============================
-      # 恢复 azlassets state cache（非常小）
+      # 恢复 azlassets state cache(非常小)
       # =============================
       - name: Restore azlassets state cache (if exists)
         env:
@@ -50,25 +50,40 @@ jobs:
           import sys
           import azl
           import azlassets.classes as cls
-      
+          import azlassets.updater as updater
+
+          # Patch 1: VersionType hash (原有)
           VT = getattr(cls, "VersionType", None)
           if VT is None:
               print("[patch] VersionType not found in azlassets.classes; continuing anyway.")
           else:
-              # 如果不可哈希，__hash__ 通常为 None
               if getattr(VT, "__hash__", None) is None:
                   VT.__hash__ = lambda self: hash(str(self))
                   print("[patch] Patched VersionType.__hash__ to hash(str(self))")
               else:
                   print("[patch] VersionType.__hash__ already present:", VT.__hash__)
-      
+
+          # Patch 2: remove_asset 支持目录删除（修复 IsADirectoryError）
+          _orig_remove_asset = updater.remove_asset
+          def _patched_remove_asset(assetpath):
+              import pathlib
+              p = pathlib.Path(assetpath.full)
+              if p.is_dir():
+                  import shutil
+                  shutil.rmtree(p)
+                  print(f"[patch] Removed directory: {assetpath.full}")
+              else:
+                  _orig_remove_asset(assetpath)
+          updater.remove_asset = _patched_remove_asset
+          print("[patch] Patched updater.remove_asset to handle directories")
+
           # 让 azl 按 CLI 方式运行 download JP
           sys.argv = ["azl", "download", "JP"]
           azl.main()
           PY
 
       # =============================
-      # 恢复上次 loadingbg_full.zip → last_loadingbg（用于 diff）
+      # 恢复上次 loadingbg_full.zip → last_loadingbg(用于 diff)
       # =============================
       - name: Restore last loadingbg snapshot (if exists)
         env:
@@ -88,14 +103,14 @@ jobs:
           fi
 
       # =============================
-      # 收集本次 loadingbg（若没更新可能不存在）
+      # 收集本次 loadingbg(若没更新可能不存在)
       # =============================
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
       # =============================
-      # diff + zip（你已修过：无 current_loadingbg 也能正常结束）
+      # diff + zip(你已修过:无 current_loadingbg 也能正常结束)
       # =============================
       - name: Diff and zip
         run: |
@@ -113,13 +128,13 @@ jobs:
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
 
       # =============================
-      # 打包 state cache（只保留逻辑状态，不含 AssetBundles）
+      # 打包 state cache(只保留逻辑状态,不含 AssetBundles)
       # =============================
       - name: Pack azlassets client state
         run: |
           rm -rf state_tmp
           mkdir -p state_tmp/ClientAssets
-          # 仅当 ClientAssets/JP 存在时才打包（防首次/异常）
+          # 仅当 ClientAssets/JP 存在时才打包(防首次/异常)
           if [ -d "ClientAssets/JP" ]; then
             cp -r ClientAssets/JP state_tmp/ClientAssets/
             rm -rf state_tmp/ClientAssets/JP/AssetBundles || true
