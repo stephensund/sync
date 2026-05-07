@@ -67,11 +67,16 @@ jobs:
           _orig_remove_asset = updater.remove_asset
           def _patched_remove_asset(assetpath):
               import pathlib
-              p = pathlib.Path(assetpath.full)
+              # azlassets 版本差异：assetpath 可能为 AssetPath 对象（带 .full）
+              # 或已经是 pathlib.Path
+              if isinstance(assetpath, pathlib.Path):
+                  p = assetpath
+              else:
+                  p = pathlib.Path(assetpath.full)
               if p.is_dir():
                   import shutil
                   shutil.rmtree(p)
-                  print(f"[patch] Removed directory: {assetpath.full}")
+                  print(f"[patch] Removed directory: {p}")
               else:
                   _orig_remove_asset(assetpath)
           updater.remove_asset = _patched_remove_asset
