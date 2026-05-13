@@ -19,15 +19,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install azlassets (v4.x)
+      - name: Install azlassets
         run: |
           python -m pip install --upgrade pip
-          pip install "azlassets==4.0.0"
+          pip install azlassets
           azl --help
 
-      # =============================
-      # 恢复 azlassets state cache(非常小)
-      # =============================
+      # Restore azlassets state cache from previous release
       - name: Restore azlassets state cache (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -87,9 +85,7 @@ jobs:
           azl.main()
           PY
 
-      # =============================
-      # 恢复上次 loadingbg_full.zip → last_loadingbg(用于 diff)
-      # =============================
+      # Restore previous full snapshot for diff comparison
       - name: Restore last loadingbg snapshot (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -107,16 +103,12 @@ jobs:
             fi
           fi
 
-      # =============================
-      # 收集本次 loadingbg(若没更新可能不存在)
-      # =============================
+      # Collect current JP loadingbg files
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
-      # =============================
-      # diff + zip(你已修过:无 current_loadingbg 也能正常结束)
-      # =============================
+      # Diff current vs previous, generate zip archives
       - name: Diff and zip
         run: |
           bash scripts/diff_and_zip.sh
@@ -132,9 +124,7 @@ jobs:
           echo "generated_at=$(date -u)" >> meta.txt
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
 
-      # =============================
-      # 打包 state cache(只保留逻辑状态,不含 AssetBundles)
-      # =============================
+      # Pack azlassets logical state (excluding AssetBundles) for next run
       - name: Pack azlassets client state
         run: |
           rm -rf state_tmp
@@ -146,9 +136,7 @@ jobs:
           fi
           tar -cf jp-client-state.tar -C state_tmp ClientAssets
 
-      # =============================
-      # 发布 Release
-      # =============================
+      # Publish GitHub Release with all artifacts
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
