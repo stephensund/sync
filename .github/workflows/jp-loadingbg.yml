@@ -25,31 +25,33 @@ jobs:
           pip install azlassets
           azl --help
 
-      # Restore azlassets state cache from previous release
-      # NOTE: We delete hashes*.csv after restore to force re-download.
-      # The state cache only contains metadata (hashes.csv, version.txt), NOT
-      # the actual AssetBundles (too large). If we keep hashes.csv, azlassets
-      # thinks all files are up-to-date and skips downloading them.
+      # Restore azlassets state cache (including AssetBundles) from previous run artifact.
+      # This preserves actual downloaded files so azlassets can do incremental sync
+      # (only download changed files) instead of full redownload every time.
       - name: Restore azlassets state cache (if exists)
+        id: restore-cache
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
-          if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
-            STATE_URL=$(jq -r '.assets[] | select(.name=="jp-client-state.tar") | .browser_download_url' release.json)
-            if [ -n "$STATE_URL" ] && [ "$STATE_URL" != "null" ]; then
-              echo "Restoring azlassets state cache..."
-              curl -L -o jp-client-state.tar "$STATE_URL"
-              tar -xf jp-client-state.tar
-              # FORCE re-download: delete local hash files so azlassets
-              # treats this as a fresh start and actually downloads files.
-              echo "Deleting hashes*.csv to force re-download..."
-              find ClientAssets/JP -name 'hashes*.csv' -delete 2>/dev/null || true
-              echo "After cache restore, AssetBundles exists:"
-              ls -la ClientAssets/JP/AssetBundles 2>/dev/null || echo "  (not present, will be downloaded)"
-            else
-              echo "No state cache found, cold-ish start."
+          API="https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=100"
+          RESP=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API")
+          ARTIFACT_ID=$(echo "$RESP" | jq -r '.artifacts[] | select(.name=="jp-client-cache") | .id' | head -1)
+          if [ -n "$ARTIFACT_ID" ] && [ "$ARTIFACT_ID" != "null" ]; then
+            echo "Found cached artifact jp-client-cache (id=$ARTIFACT_ID), downloading..."
+            mkdir -p ClientAssets
+            curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
+              -o jp-client-cache.zip
+            unzip -q jp-client-cache.zip
+            # Move extracted artifact/*/ClientAssets/* → ./ClientAssets/
+            if [ -d "artifact" ]; then
+              cp -r artifact/*/ClientAssets/. ClientAssets/ 2>/dev/null || true
+              rm -rf artifact
             fi
+            echo "After cache restore, AssetBundles exists:"
+            ls ClientAssets/JP/AssetBundles 2>/dev/null | head -5 && echo "  ..." || echo "  (not present)"
+          else
+            echo "No cached artifact found, cold start (first run or artifact expired)."
           fi
 
       - name: Download JP assets (azl v4.0.0 with runtime patch)
@@ -128,7 +130,7 @@ jobs:
           print("[patch] Patched updater.update to log results")
 
           # 让 azl 按 CLI 方式运行 download JP
-          sys.argv = ["azl", "download", "JP", "--force-refresh"]
+          sys.argv = ["azl", "download", "JP"]
           azl.main()
           print("[debug] After download:")
           import os, pathlib
@@ -218,30 +220,41 @@ jobs:
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
           echo "has_diff_gallerypic=${{ steps.diffcheck.outputs.has_diff_gallerypic }}" >> meta.txt
 
-      # Pack azlassets logical state (excluding AssetBundles) for next run
-      - name: Pack azlassets client state
+      # Upload azlassets full state (including AssetBundles) as artifact for next run.
+      # This replaces the old jp-client-state.tar approach which excluded AssetBundles.
+      - name: Upload azlassets client state
+        uses: actions/upload-artifact@v4
+        with:
+          name: jp-client-cache
+          path: ClientAssets/
+          retention-days: 14
+          compression-level: 6
+          overwrite: true
+
+      # Publish GitHub Release with all artifacts
+      # Pack only the small metadata files (hashes.csv, version.txt) into tar for Release.
+      # AssetBundles are preserved via the separate artifact above.
+      - name: Pack azlassets metadata state
         run: |
-          rm -rf state_tmp
-          mkdir -p state_tmp/ClientAssets
-          # 仅当 ClientAssets/JP 存在时才打包(防首次/异常)
+          rm -rf state_tmp && mkdir -p state_tmp/ClientAssets
           if [ -d "ClientAssets/JP" ]; then
             cp -r ClientAssets/JP state_tmp/ClientAssets/
-            rm -rf state_tmp/ClientAssets/JP/AssetBundles || true
+            rm -rf state_tmp/ClientAssets/JP/AssetBundles
           fi
           tar -cf jp-client-state.tar -C state_tmp ClientAssets
 
-      # Publish GitHub Release with all artifacts
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: jp-loadingbg-latest
           name: JP assets latest
           body: |
-            JP assets sync (azlassets v4, state-cache).
+            JP assets sync (azlassets v4, state-cache + asset artifact).
 
-            - jp-client-state.tar : azlassets logical state (safe cache)
+            - jp-client-state.tar : azlassets metadata (hashes.csv, version.txt) — excludes AssetBundles
             - loadingbg_full.zip : latest full snapshot
             - gallerypic_full.zip : latest full snapshot
+            - AssetBundles are persisted via GitHub Actions artifact (jp-client-cache)
           files: |
             jp-client-state.tar
             loadingbg_full.zip
