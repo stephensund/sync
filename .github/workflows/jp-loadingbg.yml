@@ -101,10 +101,9 @@ jobs:
           import azlassets.versioncontrol as vc
           _orig_parse = vc.parse_version_string
           def _patched_parse(version_string):
-              results = _orig_parse(version_string)
-              for r in results:
-                  print(f"[debug] parse_version_string: type={r.version_type.name}, version={r.version}")
-              return results
+              result = _orig_parse(version_string)
+              print(f"[debug] parse_version_string: type={result.version_type.name}, version={result.version}")
+              return result
           vc.parse_version_string = _patched_parse
           print("[patch] Patched versioncontrol.parse_version_string to log all version types")
           # Also patch updater.update to log what gets processed
