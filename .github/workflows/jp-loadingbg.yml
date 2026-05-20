@@ -25,11 +25,10 @@ jobs:
           pip install azlassets
           azl --help
 
-      # Restore azlassets state cache from previous release
-      # NOTE: We delete hashes*.csv after restore to force re-download.
-      # The state cache only contains metadata (hashes.csv, version.txt), NOT
-      # the actual AssetBundles (too large). If we keep hashes.csv, azlassets
-      # thinks all files are up-to-date and skips downloading them.
+      # Restore azlassets state cache from previous release.
+      # jp-client-state.tar contains hashes.csv (not AssetBundles — too large).
+      # After restore, hashes.csv tells azlassets the last-known CDN state.
+      # azlassets will compare local AssetBundles vs CDN: missing files get downloaded.
       - name: Restore azlassets state cache (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,17 +37,12 @@ jobs:
           if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
             STATE_URL=$(jq -r '.assets[] | select(.name=="jp-client-state.tar") | .browser_download_url' release.json)
             if [ -n "$STATE_URL" ] && [ "$STATE_URL" != "null" ]; then
-              echo "Restoring azlassets state cache..."
+              echo "Restoring azlassets state cache (hashes.csv) from previous run..."
               curl -L -o jp-client-state.tar "$STATE_URL"
               tar -xf jp-client-state.tar
-              # FORCE re-download: delete local hash files so azlassets
-              # treats this as a fresh start and actually downloads files.
-              echo "Deleting hashes*.csv to force re-download..."
-              find ClientAssets/JP -name 'hashes*.csv' -delete 2>/dev/null || true
-              echo "After cache restore, AssetBundles exists:"
-              ls -la ClientAssets/JP/AssetBundles 2>/dev/null || echo "  (not present, will be downloaded)"
+              echo "Cache restored. hashes.csv is present for incremental sync."
             else
-              echo "No state cache found, cold-ish start."
+              echo "No state cache found, first run (or cache expired)."
             fi
           fi
 
@@ -128,7 +122,7 @@ jobs:
           print("[patch] Patched updater.update to log results")
 
           # 让 azl 按 CLI 方式运行 download JP
-          sys.argv = ["azl", "download", "JP", "--force-refresh"]
+          sys.argv = ["azl", "download", "JP"]
           azl.main()
           print("[debug] After download:")
           import os, pathlib
