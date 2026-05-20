@@ -97,15 +97,19 @@ jobs:
           # 让 azl 按 CLI 方式运行 download JP
           sys.argv = ["azl", "download", "JP", "--force-refresh"]
           azl.main()
+          print("[debug] After download:")
+          import os, pathlib
+          ab = pathlib.Path("ClientAssets/JP/AssetBundles")
+          if ab.exists():
+              print("  AssetBundles:", os.listdir(str(ab)))
+          else:
+              print("  AssetBundles dir NOT found")
+          jpd = pathlib.Path("ClientAssets/JP")
+          if jpd.exists():
+              print("  JP:", os.listdir(str(jpd)))
+          else:
+              print("  JP dir NOT found")
           PY
-
-      - name: Debug: print ClientAssets/JP/AssetBundles structure after download
-        run: |
-          echo "=== ClientAssets/JP/AssetBundles ==="
-          ls ClientAssets/JP/AssetBundles/ 2>/dev/null || echo "AssetBundles dir not found"
-          echo ""
-          echo "=== ClientAssets/JP ==="
-          ls ClientAssets/JP/ 2>/dev/null || echo "JP dir not found"
 
       # Restore previous full snapshot for diff comparison
       - name: Restore last loadingbg snapshot (if exists)
