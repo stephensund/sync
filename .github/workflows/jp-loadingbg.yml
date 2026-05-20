@@ -95,7 +95,7 @@ jobs:
               print("[patch] No remove_asset or delete_asset_safe found, skipping directory patch")
 
           # 让 azl 按 CLI 方式运行 download JP
-          sys.argv = ["azl", "download", "JP"]
+          sys.argv = ["azl", "download", "JP", "--force-refresh"]
           azl.main()
           PY
 
