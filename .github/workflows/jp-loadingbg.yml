@@ -26,6 +26,10 @@ jobs:
           azl --help
 
       # Restore azlassets state cache from previous release
+      # NOTE: We delete hashes*.csv after restore to force re-download.
+      # The state cache only contains metadata (hashes.csv, version.txt), NOT
+      # the actual AssetBundles (too large). If we keep hashes.csv, azlassets
+      # thinks all files are up-to-date and skips downloading them.
       - name: Restore azlassets state cache (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -37,6 +41,12 @@ jobs:
               echo "Restoring azlassets state cache..."
               curl -L -o jp-client-state.tar "$STATE_URL"
               tar -xf jp-client-state.tar
+              # FORCE re-download: delete local hash files so azlassets
+              # treats this as a fresh start and actually downloads files.
+              echo "Deleting hashes*.csv to force re-download..."
+              find ClientAssets/JP -name 'hashes*.csv' -delete 2>/dev/null || true
+              echo "After cache restore, AssetBundles exists:"
+              ls -la ClientAssets/JP/AssetBundles 2>/dev/null || echo "  (not present, will be downloaded)"
             else
               echo "No state cache found, cold-ish start."
             fi
