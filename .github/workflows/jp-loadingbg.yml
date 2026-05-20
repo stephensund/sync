@@ -99,6 +99,14 @@ jobs:
           azl.main()
           PY
 
+      - name: Debug: print ClientAssets/JP/AssetBundles structure after download
+        run: |
+          echo "=== ClientAssets/JP/AssetBundles ==="
+          ls ClientAssets/JP/AssetBundles/ 2>/dev/null || echo "AssetBundles dir not found"
+          echo ""
+          echo "=== ClientAssets/JP ==="
+          ls ClientAssets/JP/ 2>/dev/null || echo "JP dir not found"
+
       # Restore previous full snapshot for diff comparison
       - name: Restore last loadingbg snapshot (if exists)
         env:
