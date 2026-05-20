@@ -196,11 +196,15 @@ jobs:
             meta.txt
 
       - name: Upload gallerypic full
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: jp-loadingbg-latest
-          files: gallerypic_full.zip
-        if: -s gallerypic_full.zip
+        run: |
+          if [ -s "gallerypic_full.zip" ]; then
+            curl -sL -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@gallerypic_full.zip" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest/assets?name=gallerypic_full.zip"
+          fi
+        shell: bash
 
       - name: Upload loadingbg diff
         uses: softprops/action-gh-release@v2
