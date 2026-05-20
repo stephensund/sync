@@ -134,6 +134,13 @@ jobs:
               print("  JP dir NOT found")
           PY
 
+      # v4: download only fetches hashes, must extract to get actual files
+      - name: Extract JP assets
+        run: |
+          python -c "import azl; import sys; sys.argv=['azl', 'extract', 'JP']; azl.main()"
+          echo "After extract:"
+          ls -la ClientExtract/JP/ 2>/dev/null || echo "ClientExtract/JP/ not found"
+
       # Restore previous full snapshot for diff comparison
       - name: Restore last loadingbg snapshot (if exists)
         env:
