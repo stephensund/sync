@@ -26,6 +26,10 @@ jobs:
           azl --help
 
       # Restore azlassets state cache from previous release
+      # NOTE: We delete hashes*.csv after restore to force re-download.
+      # The state cache only contains metadata (hashes.csv, version.txt), NOT
+      # the actual AssetBundles (too large). If we keep hashes.csv, azlassets
+      # thinks all files are up-to-date and skips downloading them.
       - name: Restore azlassets state cache (if exists)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -37,6 +41,12 @@ jobs:
               echo "Restoring azlassets state cache..."
               curl -L -o jp-client-state.tar "$STATE_URL"
               tar -xf jp-client-state.tar
+              # FORCE re-download: delete local hash files so azlassets
+              # treats this as a fresh start and actually downloads files.
+              echo "Deleting hashes*.csv to force re-download..."
+              find ClientAssets/JP -name 'hashes*.csv' -delete 2>/dev/null || true
+              echo "After cache restore, AssetBundles exists:"
+              ls -la ClientAssets/JP/AssetBundles 2>/dev/null || echo "  (not present, will be downloaded)"
             else
               echo "No state cache found, cold-ish start."
             fi
@@ -94,10 +104,52 @@ jobs:
           else:
               print("[patch] No remove_asset or delete_asset_safe found, skipping directory patch")
 
+          # Patch 3: debug - intercept all version types server returns
+          import azlassets.downloadmgr as dlmgr
+          _orig_run = dlmgr.DownloadManager.run if hasattr(dlmgr, "DownloadManager") else None
+          # Patch versioncontrol.parse_version_string to log all types
+          import azlassets.versioncontrol as vc
+          _orig_parse = vc.parse_version_string
+          def _patched_parse(version_string):
+              result = _orig_parse(version_string)
+              print(f"[debug] parse_version_string: type={result.version_type.name}, version={result.version}")
+              return result
+          vc.parse_version_string = _patched_parse
+          print("[patch] Patched versioncontrol.parse_version_string to log all version types")
+          # Also patch updater.update to log what gets processed
+          import asyncio
+          _orig_update = updater.update
+          async def _patched_update(version_result, *args, **kwargs):
+              print(f"[debug] updater.update() called: type={version_result.version_type.name}, version={version_result.version}")
+              result = await _orig_update(version_result, *args, **kwargs)
+              print(f"[debug] updater.update() result for {version_result.version_type.name}: {len(result) if result else None} items")
+              return result
+          updater.update = _patched_update
+          print("[patch] Patched updater.update to log results")
+
           # 让 azl 按 CLI 方式运行 download JP
-          sys.argv = ["azl", "download", "JP"]
+          sys.argv = ["azl", "download", "JP", "--force-refresh"]
           azl.main()
+          print("[debug] After download:")
+          import os, pathlib
+          ab = pathlib.Path("ClientAssets/JP/AssetBundles")
+          if ab.exists():
+              print("  AssetBundles:", os.listdir(str(ab)))
+          else:
+              print("  AssetBundles dir NOT found")
+          jpd = pathlib.Path("ClientAssets/JP")
+          if jpd.exists():
+              print("  JP:", os.listdir(str(jpd)))
+          else:
+              print("  JP dir NOT found")
           PY
+
+      # v4: download only fetches hashes, must extract to get actual files
+      - name: Extract JP assets
+        run: |
+          python -c "import azl; import sys; sys.argv=['azl', 'extract', 'JP']; azl.main()"
+          echo "After extract:"
+          ls -la ClientExtract/JP/ 2>/dev/null || echo "ClientExtract/JP/ not found"
 
       # Restore previous full snapshot for diff comparison
       - name: Restore last loadingbg snapshot (if exists)
@@ -117,26 +169,54 @@ jobs:
             fi
           fi
 
+      - name: Restore last gallerypic snapshot (if exists)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
+          if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
+            FULL_URL=$(jq -r '.assets[] | select(.name=="gallerypic_full.zip") | .browser_download_url' release.json)
+            if [ -n "$FULL_URL" ] && [ "$FULL_URL" != "null" ]; then
+              curl -L -o gallerypic_full.zip "$FULL_URL"
+              unzip -q gallerypic_full.zip
+              if [ -d "last_gallerypic" ]; then
+                rm -rf last_gallerypic
+              fi
+              mv current_gallerypic last_gallerypic
+            fi
+          fi
+
       # Collect current JP loadingbg files
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
+      # Collect current JP gallerypic files
+      - name: Collect gallerypic
+        run: |
+          python scripts/collect_gallerypic.py
+
       # Diff current vs previous, generate zip archives
-      - name: Diff and zip
+      - name: Diff and zip loadingbg
         run: |
           bash scripts/diff_and_zip.sh
+
+      - name: Diff and zip gallerypic
+        run: |
+          bash scripts/diff_and_zip_gallerypic.sh
 
       - name: Read diff status
         id: diffcheck
         run: |
           echo "has_diff=$(cat has_diff.flag)" >> $GITHUB_OUTPUT
+          echo "has_diff_gallerypic=$(cat has_diff_gallerypic.flag)" >> $GITHUB_OUTPUT
 
       - name: Generate meta info
         run: |
           echo "client=JP" > meta.txt
           echo "generated_at=$(date -u)" >> meta.txt
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
+          echo "has_diff_gallerypic=${{ steps.diffcheck.outputs.has_diff_gallerypic }}" >> meta.txt
 
       # Pack azlassets logical state (excluding AssetBundles) for next run
       - name: Pack azlassets client state
@@ -155,15 +235,39 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: jp-loadingbg-latest
-          name: JP loadingbg latest
+          name: JP assets latest
           body: |
-            JP loadingbg sync (azlassets v4, state-cache).
+            JP assets sync (azlassets v4, state-cache).
 
             - jp-client-state.tar : azlassets logical state (safe cache)
             - loadingbg_full.zip : latest full snapshot
-            - loadingbg_diff.zip : only when updated
+            - gallerypic_full.zip : latest full snapshot
           files: |
             jp-client-state.tar
             loadingbg_full.zip
             meta.txt
-            ${{ steps.diffcheck.outputs.has_diff == 'true' && 'loadingbg_diff.zip' || '' }}
+
+      - name: Upload gallerypic full
+        run: |
+          if [ -s "gallerypic_full.zip" ]; then
+            curl -sL -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@gallerypic_full.zip" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest/assets?name=gallerypic_full.zip"
+          fi
+        shell: bash
+
+      - name: Upload loadingbg diff
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: jp-loadingbg-latest
+          files: loadingbg_diff.zip
+        if: steps.diffcheck.outputs.has_diff == 'true'
+
+      - name: Upload gallerypic diff
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: jp-loadingbg-latest
+          files: gallerypic_diff.zip
+        if: steps.diffcheck.outputs.has_diff_gallerypic == 'true'

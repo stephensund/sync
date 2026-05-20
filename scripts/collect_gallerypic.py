@@ -2,10 +2,10 @@ from pathlib import Path
 import shutil
 import os
 
-# loadingbg files are downloaded directly to ClientAssets/JP/AssetBundles/loadingbg/
-# (they are part of the AZL version type, not a separate type)
-src = Path("ClientAssets/JP/AssetBundles/loadingbg")
-dst = Path("current_loadingbg")
+# gallerypic files are downloaded to ClientAssets/JP/AssetBundles/gallerypic/
+# (they are part of the PIC version type)
+src = Path("ClientAssets/JP/AssetBundles/gallerypic")
+dst = Path("current_gallerypic")
 
 dst.mkdir(parents=True, exist_ok=True)
 
