@@ -117,26 +117,54 @@ jobs:
             fi
           fi
 
+      - name: Restore last gallerypic snapshot (if exists)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          API="https://api.github.com/repos/${{ github.repository }}/releases/tags/jp-loadingbg-latest"
+          if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$API" > release.json; then
+            FULL_URL=$(jq -r '.assets[] | select(.name=="gallerypic_full.zip") | .browser_download_url' release.json)
+            if [ -n "$FULL_URL" ] && [ "$FULL_URL" != "null" ]; then
+              curl -L -o gallerypic_full.zip "$FULL_URL"
+              unzip -q gallerypic_full.zip
+              if [ -d "last_gallerypic" ]; then
+                rm -rf last_gallerypic
+              fi
+              mv current_gallerypic last_gallerypic
+            fi
+          fi
+
       # Collect current JP loadingbg files
       - name: Collect loadingbg
         run: |
           python scripts/collect_loadingbg.py
 
+      # Collect current JP gallerypic files
+      - name: Collect gallerypic
+        run: |
+          python scripts/collect_gallerypic.py
+
       # Diff current vs previous, generate zip archives
-      - name: Diff and zip
+      - name: Diff and zip loadingbg
         run: |
           bash scripts/diff_and_zip.sh
+
+      - name: Diff and zip gallerypic
+        run: |
+          bash scripts/diff_and_zip_gallerypic.sh
 
       - name: Read diff status
         id: diffcheck
         run: |
           echo "has_diff=$(cat has_diff.flag)" >> $GITHUB_OUTPUT
+          echo "has_diff_gallerypic=$(cat has_diff_gallerypic.flag)" >> $GITHUB_OUTPUT
 
       - name: Generate meta info
         run: |
           echo "client=JP" > meta.txt
           echo "generated_at=$(date -u)" >> meta.txt
           echo "has_diff=${{ steps.diffcheck.outputs.has_diff }}" >> meta.txt
+          echo "has_diff_gallerypic=${{ steps.diffcheck.outputs.has_diff_gallerypic }}" >> meta.txt
 
       # Pack azlassets logical state (excluding AssetBundles) for next run
       - name: Pack azlassets client state
@@ -155,15 +183,29 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: jp-loadingbg-latest
-          name: JP loadingbg latest
+          name: JP assets latest
           body: |
-            JP loadingbg sync (azlassets v4, state-cache).
+            JP assets sync (azlassets v4, state-cache).
 
             - jp-client-state.tar : azlassets logical state (safe cache)
             - loadingbg_full.zip : latest full snapshot
-            - loadingbg_diff.zip : only when updated
+            - gallerypic_full.zip : latest full snapshot
           files: |
             jp-client-state.tar
             loadingbg_full.zip
+            gallerypic_full.zip
             meta.txt
-            ${{ steps.diffcheck.outputs.has_diff == 'true' && 'loadingbg_diff.zip' || '' }}
+
+      - name: Upload loadingbg diff
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: jp-loadingbg-latest
+          files: loadingbg_diff.zip
+        if: steps.diffcheck.outputs.has_diff == 'true'
+
+      - name: Upload gallerypic diff
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: jp-loadingbg-latest
+          files: gallerypic_diff.zip
+        if: steps.diffcheck.outputs.has_diff_gallerypic == 'true'
