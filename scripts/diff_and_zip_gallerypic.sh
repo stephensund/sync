@@ -13,7 +13,6 @@ if [ ! -d "current_gallerypic" ] || [ -z "$(ls -A current_gallerypic 2>/dev/null
     zip -r gallerypic_full.zip last_gallerypic
   else
     echo "No last_gallerypic either, nothing to package."
-    touch gallerypic_full.zip
   fi
 
   exit 0

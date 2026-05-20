@@ -193,8 +193,14 @@ jobs:
           files: |
             jp-client-state.tar
             loadingbg_full.zip
-            gallerypic_full.zip
             meta.txt
+
+      - name: Upload gallerypic full
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: jp-loadingbg-latest
+          files: gallerypic_full.zip
+        if: -s gallerypic_full.zip
 
       - name: Upload loadingbg diff
         uses: softprops/action-gh-release@v2
