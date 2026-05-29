@@ -11,6 +11,9 @@ on:
         default: ''
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   full-download:
     runs-on: ubuntu-latest
