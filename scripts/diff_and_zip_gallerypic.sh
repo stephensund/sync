@@ -40,8 +40,16 @@ else
   HAS_DIFF=1
 fi
 
-# 生成 full 包（以 current 为准）
-zip -r gallerypic_full.zip current_gallerypic
+# 生成 full 包：合并 last_gallerypic + current_gallerypic（current 覆盖 last）
+mkdir -p full_gallerypic
+if [ -d "last_gallerypic" ]; then
+  cp -r last_gallerypic/* full_gallerypic/ 2>/dev/null || true
+fi
+if [ -d "current_gallerypic" ]; then
+  cp -r current_gallerypic/* full_gallerypic/ 2>/dev/null || true
+fi
+zip -r gallerypic_full.zip full_gallerypic
+rm -rf full_gallerypic
 
 if [ "$(ls -A diff_gallerypic 2>/dev/null)" ]; then
   zip -r gallerypic_diff.zip diff_gallerypic

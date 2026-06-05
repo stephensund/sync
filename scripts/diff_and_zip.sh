@@ -41,8 +41,16 @@ else
   HAS_DIFF=1
 fi
 
-# 生成 full 包（以 current 为准）
-zip -r loadingbg_full.zip current_loadingbg
+# 生成 full 包：合并 last_loadingbg + current_loadingbg（current 覆盖 last）
+mkdir -p full_loadingbg
+if [ -d "last_loadingbg" ]; then
+  cp -r last_loadingbg/* full_loadingbg/ 2>/dev/null || true
+fi
+if [ -d "current_loadingbg" ]; then
+  cp -r current_loadingbg/* full_loadingbg/ 2>/dev/null || true
+fi
+zip -r loadingbg_full.zip full_loadingbg
+rm -rf full_loadingbg
 
 if [ "$(ls -A diff_loadingbg 2>/dev/null)" ]; then
   zip -r loadingbg_diff.zip diff_loadingbg
