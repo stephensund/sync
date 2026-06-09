@@ -48,7 +48,6 @@ jobs:
           key: jp-assets-v2-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             jp-assets-v2-${{ runner.os }}-
-          save-always: true
 
       # Determine mode: cold start if cache miss or forced
       # Note: cache-hit is only "true" for exact key match. restore-keys fallback = "false".
