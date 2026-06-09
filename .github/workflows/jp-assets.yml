@@ -45,7 +45,9 @@ jobs:
             jp-client-state.tar
             last_loadingbg
             last_gallerypic
-          key: jp-assets-v2-${{ runner.os }}
+          key: jp-assets-v2-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            jp-assets-v2-${{ runner.os }}-
 
       # Determine mode: cold start if cache miss or forced
       - name: Determine run mode
