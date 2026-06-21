@@ -163,22 +163,25 @@ jobs:
           echo "has_diff=$(cat has_diff.flag 2>/dev/null || echo false)" >> $GITHUB_OUTPUT
           echo "has_diff_gallerypic=$(cat has_diff_gallerypic.flag 2>/dev/null || echo false)" >> $GITHUB_OUTPUT
 
-      # Update cache: save current as last for next run
+      # Update cache: merge current into last to keep full snapshot
       - name: Update cache
         run: |
-          # ⚠️ 关键：只在 current_* 实际有内容时才覆盖 last_*，
-          #    否则保留 last_* 不变（azl extract 空跑不应清除历史数据）
+          # ⚠️ 关键：current_* 是 azl 增量提取的（仅 diff），
+          #    必须**合并**到 last_* 才能保持 last 是「远端当前全量」。
+          #    漏写 merge 会导致 last_* 被替换成 current_* 的少量文件，丢失历史。
           if [ -d "current_loadingbg" ] && [ -n "$(ls -A current_loadingbg 2>/dev/null)" ]; then
-            rm -rf last_loadingbg
-            cp -r current_loadingbg last_loadingbg
-            echo "[cache] last_loadingbg updated ($(ls last_loadingbg | wc -l) files)"
+            mkdir -p last_loadingbg
+            # 用 cp -r 覆盖同名，保留 last 中独有文件
+            # (不能用 cp -n no-clobber，否则 current 中的新版无法覆盖 last 中的旧版)
+            cp -r current_loadingbg/. last_loadingbg/
+            echo "[cache] last_loadingbg merged: $(ls last_loadingbg | wc -l) files"
           else
             echo "[cache] current_loadingbg empty, keeping last_loadingbg ($(ls last_loadingbg 2>/dev/null | wc -l) files)"
           fi
           if [ -d "current_gallerypic" ] && [ -n "$(ls -A current_gallerypic 2>/dev/null)" ]; then
-            rm -rf last_gallerypic
-            cp -r current_gallerypic last_gallerypic
-            echo "[cache] last_gallerypic updated ($(ls last_gallerypic | wc -l) files)"
+            mkdir -p last_gallerypic
+            cp -r current_gallerypic/. last_gallerypic/
+            echo "[cache] last_gallerypic merged: $(ls last_gallerypic | wc -l) files"
           else
             echo "[cache] current_gallerypic empty, keeping last_gallerypic ($(ls last_gallerypic 2>/dev/null | wc -l) files)"
           fi
