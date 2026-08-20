@@ -5,6 +5,9 @@ name: JP assets sync
 # - 后续运行（有 cache）：增量，只下载 diff
 # - 可强制冷启动：workflow_dispatch.cold_start = true
 on:
+  # 每天北京时间 16:00 运行（UTC 8:00）
+  schedule:
+    - cron: '0 8 * * *'
   workflow_dispatch:
     inputs:
       cold_start:
