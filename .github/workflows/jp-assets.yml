@@ -1,11 +1,17 @@
 name: JP assets sync
 
-# 统一 workflow：手动触发，自动判断冷启动/增量
+# 统一 workflow：自动判断冷启动/增量
 # - 首次运行（无 cache）：冷启动，全量下载
 # - 后续运行（有 cache）：增量，只下载 diff
 # - 可强制冷启动：workflow_dispatch.cold_start = true
+#
+# 触发方式（外部调度器为主，原生 cron 为兜底）：
+#   1) workflow_dispatch —— 推荐：由外部调度器定时 POST 本 workflow 的 dispatches 接口触发，
+#      走实时事件通道，秒级启动。接入步骤见 README.md。
+#   2) schedule —— 兜底：GitHub 原生 cron 自 2026-08-26 起在全球范围延迟 3~12 小时，
+#      仅作为"外部调度器失效"时的保险；当天若已由外部触发跑过，guard job 会直接跳过。
 on:
-  # 每天北京时间 16:00 运行（UTC 8:00）
+  # 兜底定时（UTC 8:00 = 北京 16:00）。注意：GitHub 原生 cron 实际会晚数小时。
   schedule:
     - cron: '0 8 * * *'
   workflow_dispatch:
@@ -18,9 +24,40 @@ on:
 
 permissions:
   contents: write
+  actions: read # guard job 需读取本 workflow 历史运行，用于去重
 
 jobs:
+  # 去重守卫：外部调度器（workflow_dispatch）当天已成功触发过时，迟到的 schedule 直接跳过。
+  # workflow_dispatch / 手动触发一律放行。
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check whether today's dispatch already ran
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "[guard] event=${{ github.event_name }} -> run"
+            exit 0
+          fi
+          today=$(date -u +%Y-%m-%d)
+          n=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/jp-assets.yml/runs?per_page=50&event=workflow_dispatch" \
+                --jq "[.workflow_runs[] | select(.created_at | startswith(\"$today\"))] | length" 2>/dev/null || echo 0)
+          echo "[guard] workflow_dispatch runs today ($today UTC): ${n:-0}"
+          if [ "${n:-0}" -gt 0 ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "[guard] external dispatch already ran today -> skip this late schedule run"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
   sync:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 480
 
@@ -201,6 +238,7 @@ jobs:
       - name: Generate meta info
         run: |
           echo "client=JP" > meta.txt
+          echo "trigger=${{ github.event_name }}" >> meta.txt
           echo "mode=${{ steps.mode.outputs.mode }}" >> meta.txt
           echo "generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> meta.txt
           if [ "${{ steps.mode.outputs.mode }}" == "incremental" ]; then
